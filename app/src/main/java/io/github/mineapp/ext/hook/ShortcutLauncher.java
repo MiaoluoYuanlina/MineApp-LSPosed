@@ -70,29 +70,70 @@ final class ShortcutLauncher {
         }, "mineext-unfreeze").start();
     }
 
-    /** 刚解冻时 PackageManager 可能还没刷新出启动入口，最多重试 3 秒。 */
-    private static void launch(Activity a, String pkg, String label, int attempt) {
-        if (a.isFinishing() || a.isDestroyed()) return;
-        Intent li = a.getPackageManager().getLaunchIntentForPackage(pkg);
-        if (li == null) {
-            if (attempt < 15) {
-                MAIN.postDelayed(() -> launch(a, pkg, label, attempt + 1), 200);
-            } else {
-                done(a, label + (zh() ? " 已解冻，但没有可打开的界面" : " is unfrozen but has no launcher activity"));
-            }
+    /**
+     * 先让执行通道（shell 权限，不受「后台启动 Activity」限制）去拉起，应用内 startActivity 兜底。
+     *
+     * 只用 startActivity 的话，透明的空白页发起的启动在 Android 12+ / MIUI / HyperOS 上会被静默拦下
+     * （既不抛异常也没有界面）；而且刚解冻时本进程的 PackageManager 还可能查不到启动入口。
+     */
+    private static void launch(final Activity a, final String pkg, final String label, final int attempt) {
+        if (a.isFinishing() || a.isDestroyed()) {
+            Env.log("shortcut: activity already finishing, cannot launch " + pkg);
             return;
         }
-        try {
-            a.startActivity(li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        } catch (Throwable t) {
-            done(a, (zh() ? "无法打开 " : "Cannot open ") + label);
+        final Intent li = a.getPackageManager().getLaunchIntentForPackage(pkg);
+        // 查不到入口时先等一下 PackageManager 刷新；shell 的 monkey 不依赖这个，所以只等 1 秒
+        if (li == null && attempt < 5) {
+            MAIN.postDelayed(() -> launch(a, pkg, label, attempt + 1), 200);
             return;
         }
-        done(a, null);
+        new Thread(() -> {
+            final boolean viaShell = startViaShell(a, pkg, li);
+            MAIN.post(() -> {
+                if (viaShell) {
+                    Env.log("shortcut: launched " + pkg + " via shell");
+                    doneLater(a);
+                    return;
+                }
+                if (li != null) {
+                    try {
+                        a.startActivity(li.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
+                        Env.log("shortcut: launched " + pkg + " via startActivity");
+                        doneLater(a);
+                        return;
+                    } catch (Throwable t) {
+                        Env.log("shortcut: startActivity failed for " + pkg, t);
+                    }
+                }
+                done(a, (zh() ? "已解冻，但无法打开 " : "Unfrozen, but cannot open ") + label);
+            });
+        }, "mineext-launch").start();
+    }
+
+    private static boolean startViaShell(Activity a, String pkg, Intent li) {
+        String cmd;
+        if (li != null && li.getComponent() != null) {
+            cmd = "am start --user 0 -n '" + li.getComponent().flattenToString() + "'";
+        } else {
+            cmd = "monkey -p '" + pkg + "' -c android.intent.category.LAUNCHER 1";
+        }
+        String out = AppOps.shell(a, cmd, 15000);
+        Env.log("shortcut: `" + cmd + "` -> " + out.trim());
+        if (out.isEmpty() || out.contains("Error") || out.contains("Exception")
+                || out.contains("No activities found")) {
+            return false;
+        }
+        return out.contains("Starting:") || out.contains("Events injected: 1");
+    }
+
+    /** 目标应用的任务建立之前就移除自己的任务，部分系统会把刚发起的启动一起取消，所以稍等再收尾。 */
+    private static void doneLater(final Activity a) {
+        MAIN.postDelayed(() -> done(a, null), 600);
     }
 
     private static void done(Activity a, String msg) {
         if (msg != null) Toast.makeText(a, msg, Toast.LENGTH_LONG).show();
+        if (a.isFinishing() || a.isDestroyed()) return;
         a.finishAndRemoveTask();
         a.overridePendingTransition(0, 0);
     }

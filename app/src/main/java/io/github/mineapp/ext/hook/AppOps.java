@@ -48,6 +48,19 @@ final class AppOps {
         return shared.invoke(null, ctx, log);
     }
 
+    /** 走当前执行通道跑一条 shell 命令；失败（含通道不可用）返回空串。 */
+    static String shell(Context ctx, String cmd, int timeoutMs) {
+        try {
+            Object s = service(ctx);
+            String out = (String) s.getClass().getMethod("shellQuick", String.class, int.class)
+                    .invoke(s, cmd, timeoutMs);
+            return out == null ? "" : out;
+        } catch (Throwable t) {
+            Env.log("shell failed: " + cmd, t);
+            return "";
+        }
+    }
+
     /**
      * @param action "freeze" / "unfreeze"
      * @return 成功的包名
