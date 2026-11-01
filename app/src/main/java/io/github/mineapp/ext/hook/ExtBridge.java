@@ -30,7 +30,7 @@ public final class ExtBridge {
 
     @JavascriptInterface
     public void call(final String action, final String arg, final int id) {
-        ExecutorService ex = "requestShizuku".equals(action) ? waiter : worker;
+        ExecutorService ex = "requestShizuku".equals(action) || "freezeTemp".equals(action) ? waiter : worker;
         ex.execute(() -> {
             String json;
             try {
@@ -85,6 +85,19 @@ public final class ExtBridge {
             case "pin": {
                 JSONObject o = new JSONObject();
                 o.put("result", FrozenApps.pin(web.getContext().getApplicationContext(), arg));
+                return o.toString();
+            }
+            case "pinPicker": {
+                JSONObject o = new JSONObject();
+                o.put("result", FrozenApps.pinPicker(web.getContext().getApplicationContext()));
+                return o.toString();
+            }
+            case "freezeTemp": {
+                java.util.List<String> ok = AutoFreeze.freezeTemp(web.getContext().getApplicationContext());
+                JSONObject o = new JSONObject();
+                o.put("ok", true);
+                o.put("frozen", ok.size());
+                o.put("left", AutoFreeze.tempUnfrozen().size());
                 return o.toString();
             }
             case "setAutoFreeze": {

@@ -8,6 +8,9 @@ import android.content.pm.ShortcutInfo;
 import android.content.pm.ShortcutManager;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Shader;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.Icon;
 import android.net.Uri;
@@ -138,7 +141,28 @@ final class FrozenApps {
             supported = ctx.getSystemService(ShortcutManager.class).isRequestPinShortcutSupported();
         } catch (Throwable ignored) { }
         out.put("pinSupported", supported);
+        out.put("pickerPinned", pinned.contains(Const.SHORTCUT_PICKER_ID));
         return out;
+    }
+
+    private static Intent shortcutIntent(String action, String dataPath) {
+        return new Intent(action)
+                .setClassName(Const.TARGET_PKG, Const.TARGET_MAIN)
+                // data 各不相同：多个快捷方式各自成一个 document task，互不覆盖
+                .setData(Uri.parse("mineext://" + dataPath))
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
+                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+    }
+
+    /** 返回 "requested" / "updated" / "unsupported"。 */
+    private static String pinInfo(Context ctx, ShortcutInfo info) {
+        ShortcutManager sm = ctx.getSystemService(ShortcutManager.class);
+        if (pinnedIds(ctx).contains(info.getId())) {
+            sm.updateShortcuts(Collections.singletonList(info));
+            return "updated";
+        }
+        if (!sm.isRequestPinShortcutSupported()) return "unsupported";
+        return sm.requestPinShortcut(info, null) ? "requested" : "unsupported";
     }
 
     /** 请求把快捷方式钉到桌面。返回 "requested" / "updated" / "unsupported" / "missing"。 */
@@ -146,26 +170,53 @@ final class FrozenApps {
         PackageManager pm = ctx.getPackageManager();
         ApplicationInfo ai = info(pm, pkg);
         if (ai == null) return "missing";
-        ShortcutManager sm = ctx.getSystemService(ShortcutManager.class);
         String label = label(pm, ai);
-        Intent it = new Intent(Const.ACTION_LAUNCH_FROZEN)
-                .setClassName(Const.TARGET_PKG, Const.TARGET_MAIN)
-                // data 各不相同：多个快捷方式各自成一个 document task，互不覆盖
-                .setData(Uri.parse("mineext://launch/" + pkg))
-                .putExtra(Const.EXTRA_PKG, pkg)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_DOCUMENT | Intent.FLAG_ACTIVITY_MULTIPLE_TASK
-                        | Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS | Intent.FLAG_ACTIVITY_NO_ANIMATION);
         ShortcutInfo info = new ShortcutInfo.Builder(ctx, Const.SHORTCUT_PREFIX + pkg)
                 .setShortLabel(label)
                 .setLongLabel(label)
                 .setIcon(Icon.createWithBitmap(icon(pm, ai, 192)))
-                .setIntent(it)
+                .setIntent(shortcutIntent(Const.ACTION_LAUNCH_FROZEN, "launch/" + pkg)
+                        .putExtra(Const.EXTRA_PKG, pkg))
                 .build();
-        if (pinnedIds(ctx).contains(info.getId())) {
-            sm.updateShortcuts(Collections.singletonList(info));
-            return "updated";
+        return pinInfo(ctx, info);
+    }
+
+    /** 「冻结应用」弹窗入口：点开是全部已冻结应用的列表。 */
+    static String pinPicker(Context ctx) {
+        String label = ShortcutLauncher.zh() ? "冻结应用" : "Frozen apps";
+        ShortcutInfo info = new ShortcutInfo.Builder(ctx, Const.SHORTCUT_PICKER_ID)
+                .setShortLabel(label)
+                .setLongLabel(label)
+                .setIcon(Icon.createWithAdaptiveBitmap(pickerIcon(432)))
+                .setIntent(shortcutIntent(Const.ACTION_PICKER, "picker"))
+                .build();
+        return pinInfo(ctx, info);
+    }
+
+    /** 自绘图标：蓝色渐变底 + 白色雪花。自适应图标，中间约 60% 是安全区，雪花画在里面。 */
+    static Bitmap pickerIcon(int px) {
+        Bitmap b = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(b);
+        Paint bg = new Paint(Paint.ANTI_ALIAS_FLAG);
+        bg.setShader(new LinearGradient(0, 0, px, px, 0xFF5CC8FF, 0xFF2F6BF0, Shader.TileMode.CLAMP));
+        c.drawRect(0, 0, px, px, bg);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xFFFFFFFF);
+        p.setStyle(Paint.Style.STROKE);
+        p.setStrokeCap(Paint.Cap.ROUND);
+        p.setStrokeWidth(px * 0.032f);
+        float cx = px / 2f, cy = px / 2f, r = px * 0.24f;
+        for (int k = 0; k < 6; k++) {
+            double th = Math.toRadians(60 * k - 90);
+            float dx = (float) Math.cos(th), dy = (float) Math.sin(th);
+            c.drawLine(cx, cy, cx + dx * r, cy + dy * r, p);
+            float bx = cx + dx * r * 0.62f, by = cy + dy * r * 0.62f;
+            for (int s = -1; s <= 1; s += 2) {
+                double t2 = th + s * Math.toRadians(50);
+                c.drawLine(bx, by, bx + (float) Math.cos(t2) * r * 0.34f,
+                        by + (float) Math.sin(t2) * r * 0.34f, p);
+            }
         }
-        if (!sm.isRequestPinShortcutSupported()) return "unsupported";
-        return sm.requestPinShortcut(info, null) ? "requested" : "unsupported";
+        return b;
     }
 }

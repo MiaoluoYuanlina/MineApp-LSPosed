@@ -27,7 +27,9 @@ final class ShortcutLauncher {
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
 
     static boolean isOurs(Intent it) {
-        return it != null && Const.ACTION_LAUNCH_FROZEN.equals(it.getAction());
+        if (it == null) return false;
+        return Const.ACTION_LAUNCH_FROZEN.equals(it.getAction())
+                || Const.ACTION_PICKER.equals(it.getAction());
     }
 
     /** 在 Activity.onCreate（父类）已执行之后调用。 */
@@ -38,7 +40,15 @@ final class ShortcutLauncher {
         Env.setApp(a);
         AutoFreeze.ensure(a);
 
-        final String pkg = it.getStringExtra(Const.EXTRA_PKG);
+        if (Const.ACTION_PICKER.equals(it.getAction())) {
+            Picker.show(a);
+            return;
+        }
+        open(a, it.getStringExtra(Const.EXTRA_PKG));
+    }
+
+    /** 解冻（如果冻着）→ 拉起目标应用 → 收掉这个透明 Activity。 */
+    static void open(final Activity a, final String pkg) {
         final PackageManager pm = a.getPackageManager();
         final ApplicationInfo ai = pkg == null ? null : FrozenApps.info(pm, pkg);
         if (ai == null) {
@@ -55,8 +65,7 @@ final class ShortcutLauncher {
             String err = null;
             try {
                 List<String> ok = AppOps.batch(a, "unfreeze", Collections.singletonList(pkg));
-                if (ok.contains(pkg)) AutoFreeze.markTemp(pkg);
-                else err = zh() ? "解冻失败" : "Unfreeze failed";
+                if (!ok.contains(pkg)) err = zh() ? "解冻失败" : "Unfreeze failed";
             } catch (Throwable t) {
                 Env.log("shortcut unfreeze " + pkg, t);
                 err = (zh() ? "解冻失败：执行通道不可用，请打开 Mine App 检查" : "Unfreeze failed: shell channel unavailable")
@@ -64,8 +73,12 @@ final class ShortcutLauncher {
             }
             final String e = err;
             MAIN.post(() -> {
-                if (e != null) done(a, e);
-                else launch(a, pkg, label, 0);
+                if (e != null) {
+                    done(a, e);
+                } else {
+                    AutoFreeze.onUnfrozen(a, pkg);
+                    launch(a, pkg, label, 0);
+                }
             });
         }, "mineext-unfreeze").start();
     }
@@ -131,14 +144,14 @@ final class ShortcutLauncher {
         MAIN.postDelayed(() -> done(a, null), 600);
     }
 
-    private static void done(Activity a, String msg) {
+    static void done(Activity a, String msg) {
         if (msg != null) Toast.makeText(a, msg, Toast.LENGTH_LONG).show();
         if (a.isFinishing() || a.isDestroyed()) return;
         a.finishAndRemoveTask();
         a.overridePendingTransition(0, 0);
     }
 
-    private static boolean zh() {
+    static boolean zh() {
         return Locale.getDefault().getLanguage().startsWith("zh");
     }
 }

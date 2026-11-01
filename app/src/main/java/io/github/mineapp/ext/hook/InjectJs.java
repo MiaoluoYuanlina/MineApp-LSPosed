@@ -204,6 +204,9 @@ final class InjectJs {
       temp: '当前临时解冻、锁屏后将重新冻结：',
       pinNote: '点「添加」后桌面没出现图标？MIUI / HyperOS 需要在应用信息 → 权限里允许 Mine App 的「桌面快捷方式」。',
       goSet: '去设置',
+      pick: '添加弹窗入口到桌面', freezeAll: '全部冻结',
+      pickNote: '弹窗入口：桌面上的一个图标，点开是已冻结应用的列表，可搜索，点一项就解冻并打开；「全部冻结」把解冻过的应用一次冻回去。',
+      noTemp: '没有需要冻结的应用', fzDone: '已冻结 %d 个应用', fzLeft: '，%d 个失败', fzFail: '冻结失败',
       add: '添加', added: '已添加', loading: '加载中…', empty: '没有已冻结的应用',
       requested: '已请求添加到桌面', updated: '桌面快捷方式已更新',
       unsupported: '当前桌面不支持添加快捷方式', missing: '应用已不存在'
@@ -217,6 +220,9 @@ final class InjectJs {
       temp: 'Temporarily unfrozen, will refreeze after screen off: ',
       pinNote: 'No icon on the home screen? On MIUI / HyperOS allow Mine App the "Home screen shortcuts" permission in App info.',
       goSet: 'Settings',
+      pick: 'Add picker to home screen', freezeAll: 'Freeze all',
+      pickNote: 'Picker: one home-screen icon that opens a searchable list of frozen apps; tap one to unfreeze and open it. "Freeze all" refreezes everything you unfroze.',
+      noTemp: 'Nothing to freeze', fzDone: 'Froze %d app(s)', fzLeft: ', %d failed', fzFail: 'Freeze failed',
       add: 'Add', added: 'Added', loading: 'Loading…', empty: 'No frozen apps',
       requested: 'Requested to add to home screen', updated: 'Shortcut updated',
       unsupported: 'This launcher does not support pinned shortcuts', missing: 'App no longer exists'
@@ -251,6 +257,10 @@ final class InjectJs {
     + '<div class="info-note" id="mxTemp" style="border-top:0;padding-top:0;margin-top:4px;display:none"></div>'
     + '<div class="info-note" style="border-top:0;padding-top:0;margin-top:4px">'
     + '<span id="mxPinNote"></span>&nbsp;&nbsp;<a href="#" id="mxGoSet"></a></div>'
+    + '<div class="setrow" style="gap:10px;margin-top:8px">'
+    + '<button class="edit" id="mxPick" style="flex:1;padding:0 12px"></button>'
+    + '<button class="edit" id="mxFreezeAll" style="flex:1;padding:0 12px"></button></div>'
+    + '<div class="info-note" id="mxPickNote" style="border-top:0;padding-top:0;margin-top:2px"></div>'
     + '<ul id="mxScList" style="list-style:none;margin:6px 0 0;padding:0"></ul>'
     + '</div>';
   document.body.appendChild(sheet);
@@ -266,6 +276,9 @@ final class InjectJs {
     $('mxAfNote').textContent = l.afNote;
     $('mxPinNote').textContent = l.pinNote;
     $('mxGoSet').textContent = l.goSet;
+    $('mxPick').textContent = l.pick;
+    $('mxPickNote').textContent = l.pickNote;
+    renderFreezeAll();
     var sel = $('mxAf'), cur = data ? data.autofreeze : 5, h = '';
     for (var i = 0; i < l.afOpts.length; i++) {
       var o = l.afOpts[i];
@@ -273,7 +286,13 @@ final class InjectJs {
     }
     sel.innerHTML = h;
   }
+  function renderFreezeAll(){
+    var n = data && data.temp ? data.temp.length : 0;
+    $('mxFreezeAll').textContent = L().freezeAll + ' (' + n + ')';
+    $('mxFreezeAll').style.opacity = n ? '' : '.5';
+  }
   function renderList(){
+    renderFreezeAll();
     var l = L(), ul = $('mxScList');
     if (!data) { ul.innerHTML = '<li class="panel-loading">' + l.loading + '</li>'; return; }
     var t = $('mxTemp');
@@ -321,6 +340,26 @@ final class InjectJs {
   $('mxGoSet').onclick = function(e){ e.preventDefault(); ext('appInfo', ''); };
   $('mxAf').onchange = function(){
     ext('setAutoFreeze', this.value, function(d){ if (data && d && d.ok) data.autofreeze = d.autofreeze; });
+  };
+  $('mxPick').onclick = function(){
+    ext('pinPicker', '', function(d){
+      var l = L(), r = d && d.result;
+      if (typeof toast === 'function') toast(l[r] || l.unsupported);
+    });
+  };
+  var fzBusy = false;
+  $('mxFreezeAll').onclick = function(){
+    var l = L();
+    if (fzBusy) return;
+    if (!data || !data.temp || !data.temp.length) { if (typeof toast === 'function') toast(l.noTemp); return; }
+    fzBusy = true;
+    ext('freezeTemp', '', function(d){
+      fzBusy = false;
+      var m = d && d.ok ? l.fzDone.replace('%d', d.frozen) + (d.left ? l.fzLeft.replace('%d', d.left) : '')
+                         : l.fzFail + (d && d.err ? ': ' + d.err : '');
+      if (typeof toast === 'function') toast(m);
+      load();
+    });
   };
   $('mxScList').onclick = function(e){
     var b = e.target.closest ? e.target.closest('button[data-pin]') : null;

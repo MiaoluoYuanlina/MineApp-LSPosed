@@ -15,6 +15,9 @@ public final class Const {
     /** 桌面快捷方式：显式指向 Mine App 的 MainActivity，由注入端拦截 */
     public static final String TARGET_MAIN = TARGET_PKG + ".MainActivity";
     public static final String ACTION_LAUNCH_FROZEN = "io.github.mineapp.ext.LAUNCH_FROZEN";
+    /** 桌面上的「冻结应用」弹窗入口：列出全部已冻结应用，可搜索、点击即解冻并打开 */
+    public static final String ACTION_PICKER = "io.github.mineapp.ext.PICK_FROZEN";
+    public static final String SHORTCUT_PICKER_ID = "mx__picker";
     public static final String EXTRA_PKG = "pkg";
     public static final String SHORTCUT_PREFIX = "mx_";
 
