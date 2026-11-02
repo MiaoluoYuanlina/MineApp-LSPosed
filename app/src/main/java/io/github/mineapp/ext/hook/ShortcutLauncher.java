@@ -140,7 +140,7 @@ final class ShortcutLauncher {
     }
 
     /** 目标应用的任务建立之前就移除自己的任务，部分系统会把刚发起的启动一起取消，所以稍等再收尾。 */
-    private static void doneLater(final Activity a) {
+    static void doneLater(final Activity a) {
         MAIN.postDelayed(() -> done(a, null), 600);
     }
 
